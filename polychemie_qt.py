@@ -149,10 +149,13 @@ class TemperatureDataAcquisitionSystem(QMainWindow):
 
         self.serial_conn = None
         self.temperature_data = []  # Initialize as empty list
+        self.plot_data = []  # Store data points for plotting
         self.update_job = None
         
         self.update_timer = QTimer(self)  # Create a QTimer instance
         self.update_timer.timeout.connect(self.acquire_and_plot_data)  # Connect timeout signal to the slot
+        
+
     
         self.initUI()
         
@@ -218,6 +221,11 @@ class TemperatureDataAcquisitionSystem(QMainWindow):
         self.log_text.setReadOnly(True)
         self.layout.addWidget(self.log_text)
         
+        self.ax = self.figure.add_subplot(111)
+        self.ax.set_title('Grafik Temperatur terhadap Waktu')
+        self.ax.set_xlabel('Waktu (detik)')
+        self.ax.set_ylabel('Temperatur (°C)')
+        
     def acquire_and_plot_data(self):
         # Create the worker and thread
         self.data_reader_thread = QThread()
@@ -233,50 +241,52 @@ class TemperatureDataAcquisitionSystem(QMainWindow):
         self.data_reader_thread.start()
         
     def handle_data_ready(self, average_temperature):
-        # calibration results
-        average_temperature = 0.3015250701388389*average_temperature-21.798755485216873
+        # Calibration results
+        calibrated_temp = (0.3015250701388389 * average_temperature - 21.798755485216873)-85
+        # calibrated_temp = ((calibrated_temp-110)/(220-110))*(55-25)+25
+        batch_value = 10
+        calibrated_temp = average_temperature
 
-        # Update the UI with the received data
+        # Add calibrated temperature to the list
+        self.temperature_data.append(calibrated_temp)
 
-        # Update the current temperature display
-        # Record the current time and calculate elapsed time
-        self.temp_display.setText(f"{average_temperature:.2f} °C")  # Display the temperature with 2 decimal places
-        current_time = datetime.now()
-        if hasattr(self, 'start_time'):
-            elapsed_time = (current_time - self.start_time).total_seconds()
-        else:
-            self.start_time = current_time  # Initialize start_time if not already
-            elapsed_time = 0
+        # Display the temperature with 2 decimal places
+        self.temp_display.setText(f"{calibrated_temp:.2f} °C")
 
-        # Add the new temperature reading to your data list
-        self.temperature_data.append((elapsed_time, average_temperature))
+        # Determine current time in seconds since start
+        elapsed_time = (datetime.now() - self.start_time).total_seconds()
 
-        # Record the current time and calculate elapsed time
-        current_time = datetime.now()
-        elapsed_time = (current_time - self.start_time).total_seconds()
+        # Calculate the index for the current batch (0 for the first 100, 1 for the next 100, etc.)
+        batch_index = len(self.temperature_data) // batch_value
 
-        # Add the new temperature reading to your data list
-        self.temperature_data.append((elapsed_time, average_temperature))
+        # Calculate running average for the current batch
+        current_batch_start = batch_index * batch_value
+        current_batch_data = self.temperature_data[current_batch_start:]
+        if len(current_batch_data) > 0:  # Ensure we have data to avoid division by zero
+            running_avg_temp = sum(current_batch_data) / len(current_batch_data)
 
-        # Clear the current figure to prepare for the new plot
-        self.figure.clear()
+            # Ensure there's a plot data point for each batch, including the current incomplete one
+            if len(self.plot_data) <= batch_index:
+                self.plot_data.append((elapsed_time, running_avg_temp))
+            else:
+                self.plot_data[batch_index] = (elapsed_time, running_avg_temp)
 
-        # Create a new plot
-        ax = self.figure.add_subplot(111)
-        ax.set_title('Grafik Temperatur terhadap Waktu')
-        ax.set_xlabel('Waktu (detik)')
-        ax.set_ylabel('Temperatur (°C)')
+        # Update the plot with the latest data
+        self.update_plot()
 
-        # Unpack the temperature data into X and Y components for plotting
-        x_data, y_data = zip(*self.temperature_data)
+    def update_plot(self):
+        # Ensure to clear only the necessary parts of the plot for efficiency
+        self.ax.cla()  # Clear the current axes
+        self.ax.set_title('Temperature Over Time')
+        self.ax.set_xlabel('Time (s)')
+        self.ax.set_ylabel('Temperature (°C)')
+        # self.ax.set_ylim(0, 100)
+        
+        if self.plot_data:
+            x_data, y_data = zip(*self.plot_data)
+            self.ax.plot(x_data, y_data, '-o', label='Average Temperature')
+            self.ax.legend()
 
-        # Plot the temperature data
-        ax.plot(x_data, y_data, '-o', label='Temperature')  # '-o' creates a line plot with circles at data points
-
-        # Add a legend
-        ax.legend()
-
-        # Refresh the canvas to display the new plot
         self.canvas.draw()
 
     def start_update(self):
@@ -366,7 +376,7 @@ class TemperatureDataAcquisitionSystem(QMainWindow):
         if fileName:
             with open(fileName, "w") as file:
                 file.write("Waktu (s),Temperatur (Celcius)\n")
-                for interval, temp in self.temperature_data:
+                for interval, temp in self.plot_data:
                     file.write(f"{interval},{temp:.2f}\n")
             self.log_message(f"Data disimpan ke {fileName}")
 
