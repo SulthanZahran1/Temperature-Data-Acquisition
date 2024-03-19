@@ -34,16 +34,16 @@ class SerialConnectionThread(QThread):
 
         for port_info in serial.tools.list_ports.comports():
             serial_port = port_info.device
-            
+
             try:
                 with serial.Serial(serial_port, self.baud_rate, timeout=self.timeout, write_timeout=self.timeout+3) as temp_conn:
                     temp_conn.flushInput()
                     temp_conn.flushOutput()
                     print(temp_conn)
-                    
+
                     # Initialize success flag for write/read operations
                     success = False
-                    
+
                     # Retry loop - try to write and read up to 3 times
                     for attempt in range(5):
                         try:
@@ -51,7 +51,7 @@ class SerialConnectionThread(QThread):
                             temp_conn.write(b'*S#')
                             time.sleep(0.01)
                             response = temp_conn.readline().decode('utf-8').strip()
-                            
+
                             if re.match(r'\*\d+#', response):
                                 found = True  # Suitable device found
                                 success = True  # Write/read operations successful
@@ -61,7 +61,7 @@ class SerialConnectionThread(QThread):
                         except (serial.SerialTimeoutException, serial.SerialException) as e:
                             # Handle possible write/read exceptions here
                             print(f"Error on attempt {attempt + 1}: {e}")
-                        
+
                         if success:
                             break  # Exit the retry loop if successful
                         
